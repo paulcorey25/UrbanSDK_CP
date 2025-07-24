@@ -288,15 +288,32 @@ JOIN raw_trips AS t
 ## 4. Streams & Tasks (Incremental ETL)
 
 ```sql
+
 -- 4.1 Create Streams on Raw Tables
 CREATE OR REPLACE STREAM raw_trips_stream ON TABLE raw_trips APPEND_ONLY = TRUE;
 CREATE OR REPLACE STREAM raw_stop_times_stream ON TABLE raw_stop_times APPEND_ONLY = TRUE;
--- ... other streams
+-- (repeat for other raw_* tables as needed)
 
--- 4.2 Hourly ETL Task\...
-```
+-- 4.2 Hourly ETL Task: Merge new data into dimensions & fact
+CREATE OR REPLACE TASK hourly_etl
+  WAREHOUSE = 'XSMALL'
+  SCHEDULE  = 'USING CRON 0 * * * * UTC'
+AS
+  MERGE INTO dim_trip tgt
+  USING (SELECT * FROM raw_trips_stream) src
+    ON tgt.trip_id = src.trip_id
+  WHEN MATCHED THEN UPDATE SET *
+  WHEN NOT MATCHED THEN INSERT *;
 
----
+  MERGE INTO fact_stop_times tgt
+  USING (SELECT * FROM raw_stop_times_stream) src
+    ON tgt.trip_id = src.trip_id
+       AND tgt.stop_sequence = src.stop_sequence
+  WHEN NOT MATCHED THEN INSERT *;
+
+-- Enable the task
+ALTER TASK hourly_etl RESUME;
+
 
 ## 5. Performance Optimization
 
